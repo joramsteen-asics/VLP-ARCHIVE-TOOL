@@ -429,44 +429,6 @@ async function extractImagesFromXlsx(zipBytes) {
     }
   }
 
-  // Strategy 2: Try drawing relationships (floating images)
-  const drawingRels = await unzipFile(zipBytes, 'xl/drawings/_rels/drawing1.xml.rels');
-  if (drawingRels) {
-    const drawingRelsText = new TextDecoder().decode(drawingRels);
-    const rIdToFile = {};
-    const relMatches = [...drawingRelsText.matchAll(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g)];
-    for (const [, rId, target] of relMatches) {
-      const filename = 'xl/drawings/' + target.replace('../', '');
-      rIdToFile[rId] = filename;
-    }
-
-    const drawingXml = await unzipFile(zipBytes, 'xl/drawings/drawing1.xml');
-    if (drawingXml) {
-      const drawingText = new TextDecoder().decode(drawingXml);
-      // Extract images in order they appear
-      const embedMatches = [...drawingText.matchAll(/r:embed="(rId\d+)"/g)];
-
-      const result = {};
-      embedMatches.forEach((match, i) => {
-        const rId = match[1];
-        const filePath = rIdToFile[rId];
-        const img = imageFiles.find(f => f.fileName === filePath);
-        if (img) result[i] = img.b64;
-      });
-
-      if (Object.keys(result).length > 0) return result;
-    }
-  }
-
-  // Strategy 3: Just assign images in order found
-  const result = {};
-  imageFiles.forEach((img, i) => {
-    result[i] = img.b64;
-  });
-
-  return result;
-}
-
   setProgress('');
   initFilters();
   applyFilters();
