@@ -428,6 +428,8 @@ async function extractImagesFromXlsx(zipBytes) {
       if (Object.keys(result).length > 0) return result;
     }
   }
+ return result;
+}
 
   setProgress('');
   initFilters();
