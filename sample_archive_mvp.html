@@ -433,77 +433,68 @@ async function unzipFile(zipBytes, path) {
 }
 
 async function extractImagesFromXlsx(zipBytes) {
-  // 1. Try richValue method first (embedded in cells)
-  const relsXml = await unzipFile(zipBytes, 'xl/richData/_rels/richValueRel.xml.rels');
-  if (relsXml) {
-    const relsText = new TextDecoder().decode(relsXml);
-    const rIdToFile = {};
-    const relMatches = [...relsText.matchAll(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g)];
-    for (const [, rId, target] of relMatches) {
-      const filename = target.replace('../', 'xl/');
-      rIdToFile[rId] = filename;
-    }
-
-    const relOrderXml = await unzipFile(zipBytes, 'xl/richData/richValueRel.xml');
-    if (relOrderXml) {
-      const relOrderText = new TextDecoder().decode(relOrderXml);
-      const orderedRIds = [...relOrderText.matchAll(/r:id="(rId\d+)"/g)].map(m => m[1]);
-
-      const result = {};
-      for (let i = 0; i < orderedRIds.length; i++) {
-        const rId = orderedRIds[i];
-        const filePath = rIdToFile[rId];
-        if (!filePath) continue;
-        const imgBytes = await unzipFile(zipBytes, filePath);
-        if (!imgBytes) continue;
-        const ext = filePath.split('.').pop().toLowerCase();
-        const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
-        let binary = '';
-        for (let j = 0; j < imgBytes.length; j++) binary += String.fromCharCode(imgBytes[j]);
-        result[i] = `data:${mime};base64,${btoa(binary)}`;
-      }
-
-      if (Object.keys(result).length > 0) return result;
-    }
-  }
-
-  // 2. Fallback: Try drawing relationships (floating images)
+  // Extract images from drawings (floating images positioned over cells)
   const drawingRels = await unzipFile(zipBytes, 'xl/drawings/_rels/drawing1.xml.rels');
-  if (drawingRels) {
-    const drawingRelsText = new TextDecoder().decode(drawingRels);
-    const rIdToFile = {};
-    const relMatches = [...drawingRelsText.matchAll(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g)];
-    for (const [, rId, target] of relMatches) {
-      const filename = target.replace('../', 'xl/drawings/').replace('xl/drawings/xl/', 'xl/');
-      rIdToFile[rId] = filename;
-    }
+  if (!drawingRels) return {};
 
-    const drawingXml = await unzipFile(zipBytes, 'xl/drawings/drawing1.xml');
-    if (drawingXml) {
-      const drawingText = new TextDecoder().decode(drawingXml);
-      const embedMatches = [...drawingText.matchAll(/r:embed="(rId\d+)"/g)];
+  const drawingRelsText = new TextDecoder().decode(drawingRels);
+  const rIdToFile = {};
+  const relMatches = [...drawingRelsText.matchAll(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g)];
+  for (const [, rId, target] of relMatches) {
+    // target is like "../media/image1.png"
+    const filename = target.replace('../', 'xl/drawings/').replace('xl/drawings/xl/', 'xl/');
+    rIdToFile[rId] = filename;
+  }
 
-      const result = {};
-      for (let i = 0; i < embedMatches.length; i++) {
-        const rId = embedMatches[i][1];
-        const filePath = rIdToFile[rId];
-        if (!filePath) continue;
-        const imgBytes = await unzipFile(zipBytes, filePath);
-        if (!imgBytes) continue;
-        const ext = filePath.split('.').pop().toLowerCase();
-        const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
-        let binary = '';
-        for (let j = 0; j < imgBytes.length; j++) binary += String.fromCharCode(imgBytes[j]);
-        result[i] = `data:${mime};base64,${btoa(binary)}`;
-      }
+  const drawingXml = await unzipFile(zipBytes, 'xl/drawings/drawing1.xml');
+  if (!drawingXml) return {};
 
-      if (Object.keys(result).length > 0) return result;
+  const drawingText = new TextDecoder().decode(drawingXml);
+
+  // Parse each image anchor to get row position and image reference
+  const anchorRegex = /<xdr:twoCellAnchor[^>]*>([\s\S]*?)<\/xdr:twoCellAnchor>/g;
+  const images = [];
+
+  let match;
+  while ((match = anchorRegex.exec(drawingText)) !== null) {
+    const anchorContent = match[1];
+
+    // Extract starting row: <xdr:from><xdr:row>NUMBER</xdr:row>
+    const rowMatch = anchorContent.match(/<xdr:from>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/);
+    const row = rowMatch ? parseInt(rowMatch[1]) : null;
+
+    // Extract image reference: r:embed="rId1"
+    const embedMatch = anchorContent.match(/r:embed="(rId\d+)"/);
+    const rId = embedMatch ? embedMatch[1] : null;
+
+    if (row !== null && rId && rIdToFile[rId]) {
+      images.push({ row, rId, filePath: rIdToFile[rId] });
     }
   }
 
-  // 3. No images found
-  return {};
+  // Sort by row number
+  images.sort((a, b) => a.row - b.row);
+
+  // Extract actual image data
+  const result = {};
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    const imgBytes = await unzipFile(zipBytes, img.filePath);
+    if (!imgBytes) continue;
+
+    const ext = img.filePath.split('.').pop().toLowerCase();
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
+    let binary = '';
+    for (let j = 0; j < imgBytes.length; j++) binary += String.fromCharCode(imgBytes[j]);
+
+    // Map to row index (row 0 in XML = header, row 1 = first data row = index 0)
+    const dataRowIndex = img.row - 1;
+    result[dataRowIndex] = `data:${mime};base64,${btoa(binary)}`;
+  }
+
+  return result;
 }
+ 
 // ── Filters ──
 function populateSelect(id, values) {
   const sel = document.getElementById(id);
