@@ -343,39 +343,129 @@ function handleDrop(e) {
   if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
 }
 
-// ── Read xlsx + extract embedded images ──
-async function readFile(file) {
-  setProgress('Reading file…');
-  const buf = await file.arrayBuffer();
-  const uint8 = new Uint8Array(buf);
+async function extractImagesFromXlsx(zipBytes) {
+  // Extract ALL images from xl/media/ folder
+  const imageFiles = [];
+  const enc = new TextEncoder();
+  const view = new DataView(zipBytes.buffer);
 
-  // 1. Parse workbook normally for row data
-  const wb = XLSX.read(buf, { type: 'array' });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  // First, find all files in xl/media/
+  for (let i = 0; i < zipBytes.length - 4; i++) {
+    if (view.getUint32(i, true) !== 0x04034b50) continue; // PK signature
 
-  if (!rows.length) { showToast('File is empty or could not be read.'); setProgress(''); return; }
+    const nameLen = view.getUint16(i + 26, true);
+    const extraLen = view.getUint16(i + 28, true);
+    const nameStart = i + 30;
+    const nameSlice = zipBytes.slice(nameStart, nameStart + nameLen);
+    const fileName = new TextDecoder().decode(nameSlice);
 
-  setProgress('Extracting images…');
+    // Check if it's in xl/media/ and is an image
+    if (fileName.startsWith('xl/media/') && /\.(png|jpg|jpeg|gif|bmp)$/i.test(fileName)) {
+      const method = view.getUint16(i + 8, true);
+      const compSize = view.getUint32(i + 18, true);
+      const dataStart = nameStart + nameLen + extraLen;
+      const compData = zipBytes.slice(dataStart, dataStart + compSize);
 
-  // 2. Extract embedded images from the xlsx zip
-  // xlsx is a zip; manually unzip to get xl/media/* and the richValueRel mapping
-  const imageMap = await extractImagesFromXlsx(uint8);
+      let imgBytes;
+      if (method === 0) {
+        imgBytes = compData; // stored
+      } else if (method === 8) {
+        // deflate
+        const ds = new DecompressionStream('deflate-raw');
+        const writer = ds.writable.getWriter();
+        writer.write(compData);
+        writer.close();
+        const chunks = [];
+        const reader = ds.readable.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+        }
+        const total = chunks.reduce((n, c) => n + c.length, 0);
+        imgBytes = new Uint8Array(total);
+        let off = 0;
+        for (const c of chunks) { imgBytes.set(c, off); off += c.length; }
+      }
 
-  // 3. Map images to rows
-  // The Image column cells (col E = index 4) in rows get a vm attribute
-  // mapping vm index 1..N → richvalue index 0..N-1 → rId1..N → image file
-  // In practice: row order = image order (vm index matches row order)
-  allSamples = rows.map((r, i) => ({
-    item_code:    String(r['Item Trading Code'] || '').trim(),
-    product_line: String(r['Product Line Type'] || '').trim(),
-    style_name:   String(r['Series With Gen'] || '').trim(),
-    colorway:     String(r['Colorway'] || '').trim(),
-    account_name: String(r['Account Name'] || '').trim(),
-    season:       String(r['Season'] || '').trim(),
-    category:     String(r['Category 4'] || '').trim(),
-    image_b64:    imageMap[i] || null   // base64 data URI or null
-  }));
+      if (imgBytes) {
+        const ext = fileName.split('.').pop().toLowerCase();
+        const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
+        let binary = '';
+        for (let j = 0; j < imgBytes.length; j++) binary += String.fromCharCode(imgBytes[j]);
+        const b64 = `data:${mime};base64,${btoa(binary)}`;
+
+        imageFiles.push({ fileName, b64 });
+      }
+    }
+  }
+
+  // Now try to map images to rows
+  // Strategy 1: Try richValue method (embedded in cells)
+  const relsXml = await unzipFile(zipBytes, 'xl/richData/_rels/richValueRel.xml.rels');
+  if (relsXml) {
+    const relsText = new TextDecoder().decode(relsXml);
+    const rIdToFile = {};
+    const relMatches = [...relsText.matchAll(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g)];
+    for (const [, rId, target] of relMatches) {
+      const filename = 'xl/' + target.replace('../', '');
+      rIdToFile[rId] = filename;
+    }
+
+    const relOrderXml = await unzipFile(zipBytes, 'xl/richData/richValueRel.xml');
+    if (relOrderXml) {
+      const relOrderText = new TextDecoder().decode(relOrderXml);
+      const orderedRIds = [...relOrderText.matchAll(/r:id="(rId\d+)"/g)].map(m => m[1]);
+
+      const result = {};
+      for (let i = 0; i < orderedRIds.length; i++) {
+        const rId = orderedRIds[i];
+        const filePath = rIdToFile[rId];
+        const img = imageFiles.find(f => f.fileName === filePath);
+        if (img) result[i] = img.b64;
+      }
+
+      if (Object.keys(result).length > 0) return result;
+    }
+  }
+
+  // Strategy 2: Try drawing relationships (floating images)
+  const drawingRels = await unzipFile(zipBytes, 'xl/drawings/_rels/drawing1.xml.rels');
+  if (drawingRels) {
+    const drawingRelsText = new TextDecoder().decode(drawingRels);
+    const rIdToFile = {};
+    const relMatches = [...drawingRelsText.matchAll(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g)];
+    for (const [, rId, target] of relMatches) {
+      const filename = 'xl/drawings/' + target.replace('../', '');
+      rIdToFile[rId] = filename;
+    }
+
+    const drawingXml = await unzipFile(zipBytes, 'xl/drawings/drawing1.xml');
+    if (drawingXml) {
+      const drawingText = new TextDecoder().decode(drawingXml);
+      // Extract images in order they appear
+      const embedMatches = [...drawingText.matchAll(/r:embed="(rId\d+)"/g)];
+
+      const result = {};
+      embedMatches.forEach((match, i) => {
+        const rId = match[1];
+        const filePath = rIdToFile[rId];
+        const img = imageFiles.find(f => f.fileName === filePath);
+        if (img) result[i] = img.b64;
+      });
+
+      if (Object.keys(result).length > 0) return result;
+    }
+  }
+
+  // Strategy 3: Just assign images in order found
+  const result = {};
+  imageFiles.forEach((img, i) => {
+    result[i] = img.b64;
+  });
+
+  return result;
+}
 
   setProgress('');
   initFilters();
