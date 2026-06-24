@@ -433,66 +433,89 @@ async function unzipFile(zipBytes, path) {
 }
 
 async function extractImagesFromXlsx(zipBytes) {
-  // Extract images from drawings (floating images positioned over cells)
+  console.log('=== Image Extraction Debug ===');
+
+  // Check for drawing relationships
   const drawingRels = await unzipFile(zipBytes, 'xl/drawings/_rels/drawing1.xml.rels');
-  if (!drawingRels) return {};
+  console.log('drawing1.xml.rels exists:', !!drawingRels);
 
-  const drawingRelsText = new TextDecoder().decode(drawingRels);
-  const rIdToFile = {};
-  const relMatches = [...drawingRelsText.matchAll(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g)];
-  for (const [, rId, target] of relMatches) {
-    // target is like "../media/image1.png"
-    const filename = target.replace('../', 'xl/drawings/').replace('xl/drawings/xl/', 'xl/');
-    rIdToFile[rId] = filename;
-  }
+  if (drawingRels) {
+    const drawingRelsText = new TextDecoder().decode(drawingRels);
+    console.log('Rels content:', drawingRelsText);
 
-  const drawingXml = await unzipFile(zipBytes, 'xl/drawings/drawing1.xml');
-  if (!drawingXml) return {};
+    const rIdToFile = {};
+    const relMatches = [...drawingRelsText.matchAll(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g)];
+    console.log('Found rId matches:', relMatches.length);
 
-  const drawingText = new TextDecoder().decode(drawingXml);
+    for (const [, rId, target] of relMatches) {
+      const filename = target.replace('../', 'xl/drawings/').replace('xl/drawings/xl/', 'xl/');
+      rIdToFile[rId] = filename;
+      console.log(`Mapped ${rId} -> ${filename}`);
+    }
 
-  // Parse each image anchor to get row position and image reference
-  const anchorRegex = /<xdr:twoCellAnchor[^>]*>([\s\S]*?)<\/xdr:twoCellAnchor>/g;
-  const images = [];
+    const drawingXml = await unzipFile(zipBytes, 'xl/drawings/drawing1.xml');
+    console.log('drawing1.xml exists:', !!drawingXml);
 
-  let match;
-  while ((match = anchorRegex.exec(drawingText)) !== null) {
-    const anchorContent = match[1];
+    if (drawingXml) {
+      const drawingText = new TextDecoder().decode(drawingXml);
+      console.log('Drawing XML length:', drawingText.length);
+      console.log('Drawing XML preview:', drawingText.substring(0, 500));
 
-    // Extract starting row: <xdr:from><xdr:row>NUMBER</xdr:row>
-    const rowMatch = anchorContent.match(/<xdr:from>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/);
-    const row = rowMatch ? parseInt(rowMatch[1]) : null;
+      // Try to find images
+      const anchorRegex = /<xdr:twoCellAnchor[^>]*>([\s\S]*?)<\/xdr:twoCellAnchor>/g;
+      const anchors = [...drawingText.matchAll(anchorRegex)];
+      console.log('Found anchors:', anchors.length);
 
-    // Extract image reference: r:embed="rId1"
-    const embedMatch = anchorContent.match(/r:embed="(rId\d+)"/);
-    const rId = embedMatch ? embedMatch[1] : null;
+      const images = [];
+      anchors.forEach((match, idx) => {
+        const anchorContent = match[1];
+        console.log(`\n--- Anchor ${idx} ---`);
+        console.log('Content preview:', anchorContent.substring(0, 300));
 
-    if (row !== null && rId && rIdToFile[rId]) {
-      images.push({ row, rId, filePath: rIdToFile[rId] });
+        const rowMatch = anchorContent.match(/<xdr:from>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/);
+        const row = rowMatch ? parseInt(rowMatch[1]) : null;
+        console.log('Row:', row);
+
+        const embedMatch = anchorContent.match(/r:embed="(rId\d+)"/);
+        const rId = embedMatch ? embedMatch[1] : null;
+        console.log('rId:', rId);
+
+        if (row !== null && rId && rIdToFile[rId]) {
+          images.push({ row, rId, filePath: rIdToFile[rId] });
+          console.log('✓ Added to images array');
+        }
+      });
+
+      console.log('\nTotal images to extract:', images.length);
+      images.sort((a, b) => a.row - b.row);
+
+      const result = {};
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
+        console.log(`\nExtracting image ${i}: ${img.filePath}`);
+        const imgBytes = await unzipFile(zipBytes, img.filePath);
+        console.log('Image bytes:', imgBytes ? imgBytes.length : 'NULL');
+
+        if (!imgBytes) continue;
+
+        const ext = img.filePath.split('.').pop().toLowerCase();
+        const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
+        let binary = '';
+        for (let j = 0; j < imgBytes.length; j++) binary += String.fromCharCode(imgBytes[j]);
+
+        const dataRowIndex = img.row - 1;
+        result[dataRowIndex] = `data:${mime};base64,${btoa(binary)}`;
+        console.log(`Mapped to row index ${dataRowIndex}`);
+      }
+
+      console.log('\n=== Final result ===');
+      console.log('Image indices:', Object.keys(result));
+      return result;
     }
   }
 
-  // Sort by row number
-  images.sort((a, b) => a.row - b.row);
-
-  // Extract actual image data
-  const result = {};
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i];
-    const imgBytes = await unzipFile(zipBytes, img.filePath);
-    if (!imgBytes) continue;
-
-    const ext = img.filePath.split('.').pop().toLowerCase();
-    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
-    let binary = '';
-    for (let j = 0; j < imgBytes.length; j++) binary += String.fromCharCode(imgBytes[j]);
-
-    // Map to row index (row 0 in XML = header, row 1 = first data row = index 0)
-    const dataRowIndex = img.row - 1;
-    result[dataRowIndex] = `data:${mime};base64,${btoa(binary)}`;
-  }
-
-  return result;
+  console.log('No images found, returning empty object');
+  return {};
 }
  
 // ── Filters ──
