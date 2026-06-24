@@ -233,7 +233,7 @@
       <p id="progress"></p>
     </div>
     <p class="cols-hint">
-      Columns: <code>Season</code> · <code>Product Line Type</code> · <code>Series With Gen</code> ·
+      Columns: <code>Product Line Type</code> · <code>Series With Gen</code> ·
       <code>Colorway</code> · <code>Account Name</code> · <code>Item Trading Code</code> · <code>Image</code> (embedded)
     </p>
     <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none">
@@ -247,7 +247,6 @@
     </div>
     <div id="toolbar">
       <input type="text" id="search" placeholder="Search item code, style, colorway…" oninput="applyFilters()">
-      <select id="f-season" onchange="applyFilters()"><option value="">All seasons</option></select>
       <select id="f-product-line" onchange="applyFilters()"><option value="">All product line types</option></select>
       <select id="f-style" onchange="applyFilters()"><option value="">All styles</option></select>
       <select id="f-colorway" onchange="applyFilters()"><option value="">All colorways</option></select>
