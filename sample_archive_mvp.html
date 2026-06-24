@@ -251,6 +251,7 @@
       <select id="f-style" onchange="applyFilters()"><option value="">All styles</option></select>
       <select id="f-colorway" onchange="applyFilters()"><option value="">All colorways</option></select>
       <select id="f-account" onchange="applyFilters()"><option value="">All accounts</option></select>
+      <select id="f-season" onchange="applyFilters()"><option value="">All seasons</option></select>
       <button class="tool-btn" onclick="clearFilters()">✕ Clear</button>
     </div>
     <div id="grid">
@@ -494,6 +495,8 @@ function initFilters() {
   populateSelect('f-style',        allSamples.map(s => s.style_name));
   populateSelect('f-colorway',     allSamples.map(s => s.colorway));
   populateSelect('f-account',      allSamples.map(s => s.account_name));
+  populateSelect('f-season', allSamples.map(s => s.season));
+
   // Datalists for modal
   populateDatalist('dl-pltype',  allSamples.map(s => s.product_line));
   populateDatalist('dl-series',  allSamples.map(s => s.style_name));
@@ -506,11 +509,15 @@ function applyFilters() {
   const st = document.getElementById('f-style').value;
   const cw = document.getElementById('f-colorway').value;
   const ac = document.getElementById('f-account').value;
+  const sn = document.getElementById('f-season').value;
+
 
   const filtered = allSamples.filter(s => {
     const hit = !q || [s.item_code, s.style_name, s.colorway, s.account_name, s.product_line, s.season].some(v => v.toLowerCase().includes(q));
     return hit && (!pl || s.product_line === pl) && (!st || s.style_name === st)
-               && (!cw || s.colorway === cw)     && (!ac || s.account_name === ac);
+               && (!cw || s.colorway === cw)     && (!ac || s.account_name === ac)
+               && (!sn || s.season === sn);
+
   });
 
   const grid = document.getElementById('grid');
@@ -528,7 +535,7 @@ function applyFilters() {
       : `<div class="card-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>`;
 
     card.innerHTML = imgHtml + `<div class="card-body">
-      <div class="card-code">${s.item_code || '—'}</div>
+      <div class="card-code">${s.season ? s.season + ' ' : ''}${s.item_code || '—'}</div>
       <div class="card-meta">${s.style_name ? s.style_name + '<br>' : ''}${s.colorway || ''}</div>
       ${s.product_line ? `<span class="card-tag ${tagClass}">${s.product_line}</span>` : ''}
     </div>`;
@@ -538,7 +545,7 @@ function applyFilters() {
 
 function clearFilters() {
   document.getElementById('search').value = '';
-  ['f-product-line','f-style','f-colorway','f-account'].forEach(id => document.getElementById(id).value = '');
+  ['f-product-line','f-style','f-colorway','f-account','f-season'].forEach(id => document.getElementById(id).value = '');
   applyFilters();
 }
 
