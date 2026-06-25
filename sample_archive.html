@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sample Archive</title>
+<title>VLP Archive Tool</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -102,7 +102,7 @@
   /* ── Grid ── */
   #grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 12px;
   }
 
@@ -208,7 +208,7 @@
 <body>
 
 <header>
-  <h1>Sample Archive</h1>
+  <h1>ASICS VLP Archive Tool</h1>
   <span id="count-badge" style="display:none">0 samples</span>
   <button class="hdr-btn primary" id="btn-add" onclick="openModal()">+ Add style</button>
   <button class="hdr-btn" id="btn-export" onclick="exportXlsx()">↓ Export .xlsx</button>
@@ -247,7 +247,7 @@
       <a onclick="exportXlsx()">Download updated .xlsx →</a>
     </div>
     <div id="toolbar">
-      <input type="text" id="search" placeholder="Search code, style, colorway…" oninput="applyFilters()">
+      <input type="text" id="search" placeholder="Search season, itemcode, style, colorway…" oninput="applyFilters()">
       <select id="f-season"       onchange="applyFilters()"><option value="">All seasons</option></select>
       <select id="f-product-line" onchange="applyFilters()"><option value="">All product line types</option></select>
       <select id="f-style"        onchange="applyFilters()"><option value="">All styles</option></select>
