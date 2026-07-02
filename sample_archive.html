@@ -137,10 +137,11 @@
   .card-tag {
     display: inline-block; font-size: 10px; font-weight: 500;
     padding: 2px 6px; border-radius: 4px; margin-top: 2px;
-    background: #f0f0ee; color: #555; align-self: flex-start;
+    background: #f0f0ee; color: #555;
   }
   .card-tag.smu    { background: #fff3e0; color: #b86800; }
   .card-tag.inline { background: #e8f5e9; color: #2e7d32; }
+  .card-tag.account { background: #e8eaf6; color: #3949ab; }
 
   #empty {
     display: none; text-align: center; padding: 4rem 1rem;
@@ -247,7 +248,7 @@
       <a onclick="exportXlsx()">Download updated .xlsx →</a>
     </div>
     <div id="toolbar">
-      <input type="text" id="search" placeholder="Search season, itemcode, style, colorway…" oninput="applyFilters()">
+      <input type="text" id="search" placeholder="Search code, style, colorway…" oninput="applyFilters()">
       <select id="f-season"       onchange="applyFilters()"><option value="">All seasons</option></select>
       <select id="f-product-line" onchange="applyFilters()"><option value="">All product line types</option></select>
       <select id="f-style"        onchange="applyFilters()"><option value="">All styles</option></select>
@@ -325,7 +326,6 @@ const COL_MAP = {
   colorway:     ['Colorway', 'Color', 'Colourway'],
   account_name: ['Account Name', 'Account'],
   season:       ['Season'],
-  launch_date:  ['Global RID', 'Global Launch Date (AP/AC)', 'Global Launch Date', 'Launch Date', 'Intro Date', 'Introduction Date'],
   category:     ['Category 4', 'Category'],
 };
 
@@ -339,74 +339,60 @@ function pickCol(row, aliases) {
   return '';
 }
 
-// Convert an Excel serial date or date string to a season label (e.g. "AW26")
-// SS = December–May, AW = June–November
-function dateToSeason(raw) {
-  if (!raw && raw !== 0) return '';
-  let date;
-  const num = parseFloat(raw);
-  if (!isNaN(num) && num > 1000) {
-    // Excel serial date: days since 1899-12-30
-    date = new Date(Date.UTC(1899, 11, 30) + num * 86400000);
-  } else {
-    date = new Date(raw);
-  }
-  if (isNaN(date.getTime())) return '';
-  const month = date.getUTCMonth() + 1; // 1-12
-  const year  = date.getUTCFullYear();
-  // SS: Dec(12)–May(5)  → year of January side
-  // AW: Jun(6)–Nov(11)  → year of that same year
-  if (month >= 6 && month <= 11) return 'AW' + String(year).slice(2);
-  // Dec belongs to next year's SS
-  if (month === 12) return 'SS' + String(year + 1).slice(2);
-  return 'SS' + String(year).slice(2);
-}
-
 async function readFile(file) {
   setProgress('Reading file…');
   try {
     const buf = await file.arrayBuffer();
     const zip = new Uint8Array(buf);
 
-    setProgress('Parsing rows…');
+    setProgress('Parsing sheets…');
     const wb = XLSX.read(buf, { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-    if (!rows.length) { showToast('File is empty or unreadable.'); setProgress(''); return; }
 
-    // Find where the header row actually sits in the sheet (0-based row index)
-    // so we can sync image anchors to data rows correctly.
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-    const knownCols = Object.values(COL_MAP).flat().map(s => s.toLowerCase());
-    let headerSheetRow = 0;
-    outer:
-    for (let r = range.s.r; r <= range.e.r; r++) {
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const cell = ws[XLSX.utils.encode_cell({ r, c })];
-        if (cell && knownCols.includes(String(cell.v || '').toLowerCase())) {
-          headerSheetRow = r;
-          break outer;
-        }
-      }
+    // Build index: sheet filename (e.g. "sheet1") → drawing path
+    // by scanning each sheet's rels file
+    const sheetDrawingMap = {}; // "sheet1" -> "xl/drawings/drawing1.xml"
+    for (let si = 0; si < wb.SheetNames.length; si++) {
+      const sheetFile = 'xl/worksheets/sheet' + (si + 1) + '.xml';
+      const relsPath  = 'xl/worksheets/_rels/sheet' + (si + 1) + '.xml.rels';
+      const relsXml   = await unzipEntry(zip, relsPath);
+      if (!relsXml) continue;
+      const relsText = new TextDecoder().decode(relsXml);
+      // Match Target regardless of attribute order
+      const dm = relsText.match(/drawing"[^>]*Target="([^"]+)"/);
+      if (dm) sheetDrawingMap[si] = 'xl/' + dm[1].replace(/^\.\.\//, '');
     }
 
-    setProgress('Extracting images…');
-    // Pass firstDataSheetRow so the image extractor can auto-align anchors to rows
-    const firstDataSheetRow = headerSheetRow + 1;
-    const imageMap = await extractDrawingImages(zip, firstDataSheetRow);
+    allSamples = [];
 
-    allSamples = rows
-      .filter(r => pickCol(r, COL_MAP.item_code) || pickCol(r, COL_MAP.style_name))
-      .map((r, i) => ({
-        item_code:    pickCol(r, COL_MAP.item_code),
-        product_line: pickCol(r, COL_MAP.product_line),
-        style_name:   pickCol(r, COL_MAP.style_name),
-        colorway:     pickCol(r, COL_MAP.colorway),
-        account_name: pickCol(r, COL_MAP.account_name),
-        season:       pickCol(r, COL_MAP.season) || dateToSeason(pickCol(r, COL_MAP.launch_date)),
-        category:     pickCol(r, COL_MAP.category),
-        image_b64:    imageMap[i] || null
-      }));
+    for (let si = 0; si < wb.SheetNames.length; si++) {
+      const season = wb.SheetNames[si];   // sheet name IS the season
+      const ws     = wb.Sheets[season];
+      if (!ws) continue;
+
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (!rows.length) continue;
+
+      setProgress('Extracting images for ' + season + '…');
+      const drawingPath = sheetDrawingMap[si] || null;
+      const imageMap    = drawingPath ? await extractDrawingImages(zip, drawingPath) : {};
+
+      const sheetSamples = rows
+        .filter(r => pickCol(r, COL_MAP.item_code) || pickCol(r, COL_MAP.style_name))
+        .map((r, i) => ({
+          item_code:    pickCol(r, COL_MAP.item_code),
+          product_line: pickCol(r, COL_MAP.product_line),
+          style_name:   pickCol(r, COL_MAP.style_name),
+          colorway:     pickCol(r, COL_MAP.colorway),
+          account_name: pickCol(r, COL_MAP.account_name),
+          season,
+          category:     pickCol(r, COL_MAP.category),
+          image_b64:    imageMap[i] || null
+        }));
+
+      allSamples.push(...sheetSamples);
+    }
+
+    if (!allSamples.length) { showToast('No data found in file.'); setProgress(''); return; }
 
     setProgress('');
     initFilters();
@@ -426,8 +412,8 @@ async function readFile(file) {
 //  Image extraction — drawing-based (floating images)
 //  firstDataSheetRow: 0-based xlsx row index of first data row
 // ─────────────────────────────────────────
-async function extractDrawingImages(zip, firstDataSheetRow) {
-  const drawingXml = await unzipEntry(zip, 'xl/drawings/drawing1.xml');
+async function extractDrawingImages(zip, drawingPath) {
+  const drawingXml = await unzipEntry(zip, drawingPath);
   if (!drawingXml) return {};
   const drawingText = new TextDecoder().decode(drawingXml);
 
@@ -448,7 +434,8 @@ async function extractDrawingImages(zip, firstDataSheetRow) {
   const minAnchorRow = Math.min(...anchors.map(a => a.drawingRow));
   const rowOffset = minAnchorRow;
 
-  const relsXml = await unzipEntry(zip, 'xl/drawings/_rels/drawing1.xml.rels');
+  const drawingRelsPath = drawingPath.replace('xl/drawings/', 'xl/drawings/_rels/') + '.rels';
+  const relsXml = await unzipEntry(zip, drawingRelsPath);
   if (!relsXml) return {};
   const relsText = new TextDecoder().decode(relsXml);
   const rIdToFile = {};
@@ -632,7 +619,10 @@ function applyFilters() {
       <div class="card-body">
         <div class="card-headline">${seasonPart}${codePart}</div>
         <div class="card-meta">${s.style_name ? s.style_name + (s.colorway ? ' · ' : '') : ''}${s.colorway || ''}</div>
-        ${s.product_line ? `<span class="card-tag ${tagClass}">${s.product_line}</span>` : ''}
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
+          ${s.product_line ? `<span class="card-tag ${tagClass}">${s.product_line}</span>` : ''}
+          ${s.account_name ? `<span class="card-tag account">${s.account_name}</span>` : ''}
+        </div>
       </div>`;
     grid.appendChild(card);
   });
