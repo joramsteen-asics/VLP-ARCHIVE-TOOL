@@ -359,7 +359,7 @@ async function readFile(file) {
       const relsText = new TextDecoder().decode(relsXml);
       // Match Target regardless of attribute order
       const dm = relsText.match(/drawing"[^>]*Target="([^"]+)"/);
-      if (dm) sheetDrawingMap[si] = 'xl/' + dm[1].replace(/^\.\.\//, '');
+      if (dm) sheetDrawingMap[si] = 'xl/drawings/' + dm[1].split('/').pop();
     }
 
     allSamples = [];
@@ -440,7 +440,7 @@ async function extractDrawingImages(zip, drawingPath) {
   const relsText = new TextDecoder().decode(relsXml);
   const rIdToFile = {};
   for (const [, id, target] of relsText.matchAll(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g)) {
-    rIdToFile[id] = 'xl/' + target.replace(/^\.\.\//, '');
+    rIdToFile[id] = 'xl/' + target.replace('../', '');
   }
 
   const result = {};
@@ -570,7 +570,7 @@ function initFilters() {
   populateSelect('f-season',       allSamples.map(s => s.season));
   populateSelect('f-product-line', allSamples.map(s => s.product_line));
   populateSelect('f-style',        allSamples.map(s => s.style_name));
-  populateSelect('f-colorway',     allSamples.map(s => s.colorway));
+  populateSelect('f-colorway',     allSamples.map(s => s.colorway.split('/')[0].trim()));
   populateSelect('f-account',      allSamples.map(s => s.account_name));
   populateDatalist('dl-season',  allSamples.map(s => s.season));
   populateDatalist('dl-pltype',  allSamples.map(s => s.product_line));
@@ -593,7 +593,7 @@ function applyFilters() {
       && (!sea || s.season       === sea)
       && (!pl  || s.product_line === pl)
       && (!st  || s.style_name   === st)
-      && (!cw  || s.colorway     === cw)
+      && (!cw  || s.colorway.split('/')[0].trim() === cw)
       && (!ac  || s.account_name === ac);
   });
 
