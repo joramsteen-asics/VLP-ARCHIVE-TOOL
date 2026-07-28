@@ -398,6 +398,7 @@ async function readFile(file) {
     initFilters();
     applyFilters();
     document.getElementById('upload-section').style.display  = 'none';
+    document.getElementById('archive-section').style.display = 'block';
     document.getElementById('count-badge').style.display     = 'inline';
     ['btn-add','btn-reset'].forEach(id => document.getElementById(id).style.display = 'inline');
   } catch(err) {
@@ -689,6 +690,7 @@ function saveStyle() {
 function resetArchive() {
   allSamples = [];
   document.getElementById('upload-section').style.display  = 'flex';
+  document.getElementById('archive-section').style.display = 'block';
   document.getElementById('count-badge').style.display     = 'none';
   document.getElementById('download-bar').classList.remove('show');
   ['btn-add','btn-reset'].forEach(id => document.getElementById(id).style.display = 'none');
