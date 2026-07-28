@@ -86,11 +86,12 @@
   #toolbar input[type="text"]:focus { border-color: #888; }
 
   #toolbar select {
-    height: 36px; border: 1px solid #ddd; border-radius: 8px; padding: 0 10px;
+    border: 1px solid #ddd; border-radius: 8px; padding: 4px 6px;
     font-size: 13px; background: #fff; outline: none; cursor: pointer;
-    min-width: 140px; transition: border-color 0.15s;
+    min-width: 140px; transition: border-color 0.15s; height: auto;
   }
   #toolbar select:focus { border-color: #888; }
+  #toolbar select option { padding: 3px 6px; }
 
   .tool-btn {
     height: 36px; padding: 0 14px; border: 1px solid #ddd; border-radius: 8px;
@@ -212,6 +213,7 @@
   <h1>ASICS VLP Archive Tool</h1>
   <span id="count-badge" style="display:none">0 samples</span>
   <button class="hdr-btn primary" id="btn-add" onclick="openModal()">+ Add style</button>
+  <button class="hdr-btn" id="btn-export" onclick="exportXlsx()">↓ Export .xlsx</button>
   <button class="hdr-btn" id="btn-reset" onclick="resetArchive()">↑ New file</button>
 </header>
 
@@ -244,16 +246,18 @@
   <div id="archive-section">
     <div class="download-bar" id="download-bar">
       ✓ New style added.
+      <a onclick="exportXlsx()">Download updated .xlsx →</a>
     </div>
     <div id="toolbar">
       <input type="text" id="search" placeholder="Search code, style, colorway…" oninput="applyFilters()">
-      <select id="f-season"       onchange="applyFilters()"><option value="">All seasons</option></select>
-      <select id="f-product-line" onchange="applyFilters()"><option value="">All product line types</option></select>
-      <select id="f-style"        onchange="applyFilters()"><option value="">All styles</option></select>
-      <select id="f-colorway"     onchange="applyFilters()"><option value="">All colorways</option></select>
-      <select id="f-account"      onchange="applyFilters()"><option value="">All accounts</option></select>
+      <select id="f-season" multiple multiple size="1"       onchange="applyFilters()"></select>
+      <select id="f-product-line" multiple multiple size="1" onchange="applyFilters()"></select>
+      <select id="f-style" multiple multiple size="1"        onchange="applyFilters()"></select>
+      <select id="f-colorway" multiple multiple size="1"     onchange="applyFilters()"></select>
+      <select id="f-account" multiple multiple size="1"      onchange="applyFilters()"></select>
       <button class="tool-btn" onclick="clearFilters()">✕ Clear</button>
     </div>
+    <p style="font-size:11px;color:#aaa;margin:-0.75rem 0 1rem;">Hold Ctrl / Cmd to select multiple options per filter.</p>
     <div id="grid">
       <div id="empty">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -398,7 +402,7 @@ async function readFile(file) {
     document.getElementById('upload-section').style.display  = 'none';
     document.getElementById('archive-section').style.display = 'block';
     document.getElementById('count-badge').style.display     = 'inline';
-    ['btn-add','btn-reset'].forEach(id => document.getElementById(id).style.display = 'inline');
+    ['btn-add','btn-export','btn-reset'].forEach(id => document.getElementById(id).style.display = 'inline');
   } catch(err) {
     showToast('Error reading file: ' + err.message);
     setProgress('');
@@ -548,13 +552,13 @@ function uint8ToBase64(bytes) {
 // ─────────────────────────────────────────
 function populateSelect(id, values) {
   const sel = document.getElementById(id);
-  const cur = sel.value;
+  const cur = Array.from(sel.selectedOptions).map(o => o.value);
   while (sel.options.length > 1) sel.remove(1);
   [...new Set(values)].filter(Boolean).sort().forEach(v => {
     const o = document.createElement('option');
     o.value = v; o.textContent = v; sel.appendChild(o);
   });
-  sel.value = cur || '';
+  Array.from(sel.options).forEach(o => { if (cur.includes(o.value)) o.selected = true; });
 }
 function populateDatalist(id, values) {
   const dl = document.getElementById(id);
@@ -578,21 +582,22 @@ function initFilters() {
 
 function applyFilters() {
   const q   = document.getElementById('search').value.toLowerCase().trim();
-  const sea = document.getElementById('f-season').value;
-  const pl  = document.getElementById('f-product-line').value;
-  const st  = document.getElementById('f-style').value;
-  const cw  = document.getElementById('f-colorway').value;
-  const ac  = document.getElementById('f-account').value;
+  const getSelected = id => Array.from(document.getElementById(id).selectedOptions).map(o => o.value).filter(Boolean);
+  const sea = getSelected('f-season');
+  const pl  = getSelected('f-product-line');
+  const st  = getSelected('f-style');
+  const cw  = getSelected('f-colorway');
+  const ac  = getSelected('f-account');
 
   const filtered = allSamples.filter(s => {
     const hit = !q || [s.item_code, s.style_name, s.colorway, s.account_name, s.product_line, s.season]
                         .some(v => v.toLowerCase().includes(q));
     return hit
-      && (!sea || s.season       === sea)
-      && (!pl  || s.product_line === pl)
-      && (!st  || s.style_name   === st)
-      && (!cw  || s.colorway.split('/')[0].trim() === cw)
-      && (!ac  || s.account_name === ac);
+      && (!sea.length || sea.includes(s.season))
+      && (!pl.length  || pl.includes(s.product_line))
+      && (!st.length  || st.includes(s.style_name))
+      && (!cw.length  || cw.includes(s.colorway.split('/')[0].trim()))
+      && (!ac.length  || ac.includes(s.account_name));
   });
 
   const grid = document.getElementById('grid');
@@ -628,7 +633,7 @@ function applyFilters() {
 
 function clearFilters() {
   document.getElementById('search').value = '';
-  ['f-season','f-product-line','f-style','f-colorway','f-account'].forEach(id => document.getElementById(id).value = '');
+  ['f-season','f-product-line','f-style','f-colorway','f-account'].forEach(id => { Array.from(document.getElementById(id).options).forEach(o => o.selected = false); });
   applyFilters();
 }
 
@@ -682,6 +687,27 @@ function saveStyle() {
 }
 
 // ─────────────────────────────────────────
+//  Export
+// ─────────────────────────────────────────
+function exportXlsx() {
+  const rows = allSamples.map(s => ({
+    'Season':            s.season,
+    'Product Line Type': s.product_line,
+    'Item Trading Code': s.item_code,
+    'Colorway':          s.colorway,
+    'Series With Gen':   s.style_name,
+    'Account Name':      s.account_name,
+    'Category 4':        s.category,
+    'Image':             s.image_b64 ? '[embedded — re-add manually]' : ''
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Samples');
+  XLSX.writeFile(wb, 'sample_archive_export.xlsx');
+  showToast('Exported! Note: images must be re-added manually in Excel.');
+}
+
+// ─────────────────────────────────────────
 //  Reset
 // ─────────────────────────────────────────
 function resetArchive() {
@@ -690,7 +716,7 @@ function resetArchive() {
   document.getElementById('archive-section').style.display = 'none';
   document.getElementById('count-badge').style.display     = 'none';
   document.getElementById('download-bar').classList.remove('show');
-  ['btn-add','btn-reset'].forEach(id => document.getElementById(id).style.display = 'none');
+  ['btn-add','btn-export','btn-reset'].forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('file-input').value = '';
   clearFilters();
 }
