@@ -212,7 +212,6 @@
   <h1>ASICS VLP Archive Tool</h1>
   <span id="count-badge" style="display:none">0 samples</span>
   <button class="hdr-btn primary" id="btn-add" onclick="openModal()">+ Add style</button>
-  <button class="hdr-btn" id="btn-export" onclick="exportXlsx()">↓ Export .xlsx</button>
   <button class="hdr-btn" id="btn-reset" onclick="resetArchive()">↑ New file</button>
 </header>
 
@@ -245,7 +244,6 @@
   <div id="archive-section">
     <div class="download-bar" id="download-bar">
       ✓ New style added.
-      <a onclick="exportXlsx()">Download updated .xlsx →</a>
     </div>
     <div id="toolbar">
       <input type="text" id="search" placeholder="Search code, style, colorway…" oninput="applyFilters()">
@@ -400,7 +398,7 @@ async function readFile(file) {
     document.getElementById('upload-section').style.display  = 'none';
     document.getElementById('archive-section').style.display = 'block';
     document.getElementById('count-badge').style.display     = 'inline';
-    ['btn-add','btn-export','btn-reset'].forEach(id => document.getElementById(id).style.display = 'inline');
+    ['btn-add','btn-reset'].forEach(id => document.getElementById(id).style.display = 'inline');
   } catch(err) {
     showToast('Error reading file: ' + err.message);
     setProgress('');
@@ -684,27 +682,6 @@ function saveStyle() {
 }
 
 // ─────────────────────────────────────────
-//  Export
-// ─────────────────────────────────────────
-function exportXlsx() {
-  const rows = allSamples.map(s => ({
-    'Season':            s.season,
-    'Product Line Type': s.product_line,
-    'Item Trading Code': s.item_code,
-    'Colorway':          s.colorway,
-    'Series With Gen':   s.style_name,
-    'Account Name':      s.account_name,
-    'Category 4':        s.category,
-    'Image':             s.image_b64 ? '[embedded — re-add manually]' : ''
-  }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Samples');
-  XLSX.writeFile(wb, 'sample_archive_export.xlsx');
-  showToast('Exported! Note: images must be re-added manually in Excel.');
-}
-
-// ─────────────────────────────────────────
 //  Reset
 // ─────────────────────────────────────────
 function resetArchive() {
@@ -713,7 +690,7 @@ function resetArchive() {
   document.getElementById('archive-section').style.display = 'none';
   document.getElementById('count-badge').style.display     = 'none';
   document.getElementById('download-bar').classList.remove('show');
-  ['btn-add','btn-export','btn-reset'].forEach(id => document.getElementById(id).style.display = 'none');
+  ['btn-add','btn-reset'].forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('file-input').value = '';
   clearFilters();
 }
