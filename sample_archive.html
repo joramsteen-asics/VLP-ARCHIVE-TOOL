@@ -143,6 +143,7 @@
   .card-tag.smu    { background: #fff3e0; color: #b86800; }
   .card-tag.inline { background: #e8f5e9; color: #2e7d32; }
   .card-tag.account { background: #e8eaf6; color: #3949ab; }
+  .card-tag.srp { background: #f3e5f5; color: #7b1fa2; }
 
   #empty {
     display: none; text-align: center; padding: 4rem 1rem;
@@ -279,6 +280,7 @@
     <div class="field"><label>Series / Style (Series With Gen) *</label><input type="text" id="m-series" list="dl-series" placeholder="e.g. GEL-NYC"><datalist id="dl-series"></datalist></div>
     <div class="field"><label>Colorway *</label><input type="text" id="m-colorway" placeholder="e.g. BLACK/WHITE"></div>
     <div class="field"><label>Account Name</label><input type="text" id="m-account" list="dl-account" placeholder="e.g. JD"><datalist id="dl-account"></datalist></div>
+    <div class="field"><label>SRP (Local)</label><input type="text" id="m-srp" placeholder="e.g. 130"></div>
     <div class="field"><label>Category</label><input type="text" id="m-category" placeholder="e.g. SPORTSTYLE"></div>
     <div class="field">
       <label>Image</label>
@@ -325,16 +327,23 @@ const COL_MAP = {
   style_name:   ['Series With Gen', 'Working Name', 'Style Name', 'Style', 'Series'],
   colorway:     ['Colorway', 'Color', 'Colourway'],
   account_name: ['Account Name', 'Account'],
+  srp:          ['SRP (Local)', "'SRP (Local)", 'SRP', 'Price', 'Retail Price'],
   season:       ['Season'],
   category:     ['Category 4', 'Category'],
 };
 
 function pickCol(row, aliases) {
+  const normalize = s => String(s).replace(/^'/, '').trim().toLowerCase();
+  const rowKeys = Object.keys(row);
   for (const alias of aliases) {
-    if (row[alias] !== undefined && String(row[alias]).trim() !== '') return String(row[alias]).trim();
+    const aliasNorm = normalize(alias);
+    const matchKey = rowKeys.find(k => normalize(k) === aliasNorm);
+    if (matchKey && String(row[matchKey]).trim() !== '') return String(row[matchKey]).trim();
   }
   for (const alias of aliases) {
-    if (row[alias] !== undefined) return String(row[alias]).trim();
+    const aliasNorm = normalize(alias);
+    const matchKey = rowKeys.find(k => normalize(k) === aliasNorm);
+    if (matchKey) return String(row[matchKey]).trim();
   }
   return '';
 }
@@ -384,6 +393,7 @@ async function readFile(file) {
           style_name:   pickCol(r, COL_MAP.style_name),
           colorway:     pickCol(r, COL_MAP.colorway),
           account_name: pickCol(r, COL_MAP.account_name),
+          srp:          pickCol(r, COL_MAP.srp),
           season,
           category:     pickCol(r, COL_MAP.category),
           image_b64:    imageMap[i] || null
@@ -623,6 +633,7 @@ function applyFilters() {
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
           ${s.product_line ? `<span class="card-tag ${tagClass}">${s.product_line}</span>` : ''}
           ${s.account_name ? `<span class="card-tag account">${s.account_name}</span>` : ''}
+          ${s.srp ? `<span class="card-tag srp">SRP ${s.srp}</span>` : ''}
         </div>
       </div>`;
     grid.appendChild(card);
@@ -641,7 +652,7 @@ function clearFilters() {
 function openModal()  { document.getElementById('modal-backdrop').classList.add('open'); document.getElementById('m-code').focus(); }
 function closeModal() {
   document.getElementById('modal-backdrop').classList.remove('open');
-  ['m-code','m-season','m-pltype','m-series','m-colorway','m-account','m-category'].forEach(id => document.getElementById(id).value = '');
+  ['m-code','m-season','m-pltype','m-series','m-colorway','m-account','m-srp','m-category'].forEach(id => document.getElementById(id).value = '');
   newImgB64 = null;
   document.getElementById('img-preview').style.display = 'none';
   document.getElementById('img-input').value = '';
@@ -672,6 +683,7 @@ function saveStyle() {
     style_name:   ser,
     colorway:     cw,
     account_name: document.getElementById('m-account').value.trim(),
+    srp:          document.getElementById('m-srp').value.trim(),
     season:       document.getElementById('m-season').value.trim(),
     category:     document.getElementById('m-category').value.trim(),
     image_b64:    newImgB64
@@ -690,7 +702,7 @@ function saveStyle() {
 function resetArchive() {
   allSamples = [];
   document.getElementById('upload-section').style.display  = 'flex';
-  document.getElementById('archive-section').style.display = 'block';
+  document.getElementById('archive-section').style.display = 'none';
   document.getElementById('count-badge').style.display     = 'none';
   document.getElementById('download-bar').classList.remove('show');
   ['btn-add','btn-reset'].forEach(id => document.getElementById(id).style.display = 'none');
