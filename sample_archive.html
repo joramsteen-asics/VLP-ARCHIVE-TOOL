@@ -332,20 +332,53 @@ const COL_MAP = {
   category:     ['Category 4', 'Category'],
 };
 
+function normalizeHeader(s) {
+  return String(s).replace(/^'/, '').trim().toLowerCase();
+}
+
 function pickCol(row, aliases) {
-  const normalize = s => String(s).replace(/^'/, '').trim().toLowerCase();
   const rowKeys = Object.keys(row);
   for (const alias of aliases) {
-    const aliasNorm = normalize(alias);
-    const matchKey = rowKeys.find(k => normalize(k) === aliasNorm);
+    const aliasNorm = normalizeHeader(alias);
+    const matchKey = rowKeys.find(k => normalizeHeader(k) === aliasNorm);
     if (matchKey && String(row[matchKey]).trim() !== '') return String(row[matchKey]).trim();
   }
   for (const alias of aliases) {
-    const aliasNorm = normalize(alias);
-    const matchKey = rowKeys.find(k => normalize(k) === aliasNorm);
+    const aliasNorm = normalizeHeader(alias);
+    const matchKey = rowKeys.find(k => normalizeHeader(k) === aliasNorm);
     if (matchKey) return String(row[matchKey]).trim();
   }
   return '';
+}
+
+// Scan the first few raw rows of a sheet to find which one is the real
+// field-name header row (handles sheets with a group-header row above it).
+// Returns { headerRowIdx, rows } where rows are objects keyed by the detected headers.
+function parseSheetWithHeaderDetection(ws) {
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
+  if (!aoa.length) return { headerRowIdx: -1, rows: [] };
+
+  const knownAliases = Object.values(COL_MAP).flat().map(normalizeHeader);
+  const scanLimit = Math.min(aoa.length, 6); // header is almost always within first few rows
+
+  let bestRow = 0, bestScore = -1;
+  for (let r = 0; r < scanLimit; r++) {
+    const cells = aoa[r] || [];
+    const score = cells.filter(c => knownAliases.includes(normalizeHeader(c))).length;
+    if (score > bestScore) { bestScore = score; bestRow = r; }
+  }
+
+  const headerRowIdx = bestRow;
+  const headers = aoa[headerRowIdx] || [];
+  const dataRows = aoa.slice(headerRowIdx + 1);
+
+  const rows = dataRows.map(cells => {
+    const obj = {};
+    headers.forEach((h, c) => { if (h !== '') obj[h] = cells[c] !== undefined ? cells[c] : ''; });
+    return obj;
+  });
+
+  return { headerRowIdx, rows };
 }
 
 async function readFile(file) {
@@ -378,7 +411,7 @@ async function readFile(file) {
       const ws     = wb.Sheets[season];
       if (!ws) continue;
 
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      const { headerRowIdx, rows } = parseSheetWithHeaderDetection(ws);
       if (!rows.length) continue;
 
       setProgress('Extracting images for ' + season + '…');
