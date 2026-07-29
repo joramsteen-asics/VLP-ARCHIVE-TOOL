@@ -74,14 +74,19 @@
   #archive-section { display: none; }
 
   #toolbar {
-    display: flex; flex-wrap: wrap; gap: 8px;
-    margin-bottom: 1.25rem; align-items: center;
+    display: flex; flex-wrap: wrap; gap: 10px;
+    margin-bottom: 0.5rem; align-items: flex-end;
   }
+
+  .filter-wrap { display: flex; flex-direction: column; gap: 3px; }
+  .filter-label { font-size: 10px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.04em; padding-left: 2px; }
+  .filter-hint { font-size: 11px; color: #bbb; margin-bottom: 1rem; }
 
   #toolbar input[type="text"] {
     flex: 1; min-width: 180px; height: 36px;
     border: 1px solid #ddd; border-radius: 8px; padding: 0 12px;
     font-size: 13px; background: #fff; outline: none; transition: border-color 0.15s;
+    align-self: flex-end;
   }
   #toolbar input[type="text"]:focus { border-color: #888; }
 
@@ -92,6 +97,7 @@
   }
   #toolbar select:focus { border-color: #888; }
   #toolbar select option { padding: 3px 6px; }
+  #toolbar select option:disabled { color: #ccc; }
 
   .tool-btn {
     height: 36px; padding: 0 14px; border: 1px solid #ddd; border-radius: 8px;
@@ -143,6 +149,7 @@
   .card-tag.smu    { background: #fff3e0; color: #b86800; }
   .card-tag.inline { background: #e8f5e9; color: #2e7d32; }
   .card-tag.account { background: #e8eaf6; color: #3949ab; }
+  .card-tag.region { background: #eceff1; color: #455a64; }
   .card-tag.srp { background: #f3e5f5; color: #7b1fa2; }
 
   #empty {
@@ -249,14 +256,15 @@
     </div>
     <div id="toolbar">
       <input type="text" id="search" placeholder="Search code, style, colorway…" oninput="applyFilters()">
-      <select id="f-season" multiple multiple size="1"       onchange="applyFilters()"></select>
-      <select id="f-product-line" multiple multiple size="1" onchange="applyFilters()"></select>
-      <select id="f-style" multiple multiple size="1"        onchange="applyFilters()"></select>
-      <select id="f-colorway" multiple multiple size="1"     onchange="applyFilters()"></select>
-      <select id="f-account" multiple multiple size="1"      onchange="applyFilters()"></select>
-      <button class="tool-btn" onclick="clearFilters()">✕ Clear</button>
+      <div class="filter-wrap"><span class="filter-label">Season</span><select id="f-season" multiple size="1" onchange="applyFilters()"></select></div>
+      <div class="filter-wrap"><span class="filter-label">Product line</span><select id="f-product-line" multiple size="1" onchange="applyFilters()"></select></div>
+      <div class="filter-wrap"><span class="filter-label">Style</span><select id="f-style" multiple size="1" onchange="applyFilters()"></select></div>
+      <div class="filter-wrap"><span class="filter-label">Color group</span><select id="f-colorway" multiple size="1" onchange="applyFilters()"></select></div>
+      <div class="filter-wrap"><span class="filter-label">Account</span><select id="f-account" multiple size="1" onchange="applyFilters()"></select></div>
+      <div class="filter-wrap"><span class="filter-label">Lead region</span><select id="f-region" multiple size="1" onchange="applyFilters()"></select></div>
+      <button class="tool-btn" onclick="clearFilters()" style="align-self:flex-end;">✕ Clear</button>
     </div>
-    <p style="font-size:11px;color:#aaa;margin:-0.75rem 0 1rem;">Hold Ctrl / Cmd to select multiple options per filter.</p>
+    <p class="filter-hint">Hold Ctrl / Cmd to select multiple options per filter. Options that don't match your current filters are hidden.</p>
     <div id="grid">
       <div id="empty">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -279,6 +287,7 @@
     <div class="field"><label>Product Line Type *</label><input type="text" id="m-pltype" list="dl-pltype" placeholder="e.g. SMU / Inline"><datalist id="dl-pltype"></datalist></div>
     <div class="field"><label>Series / Style (Series With Gen) *</label><input type="text" id="m-series" list="dl-series" placeholder="e.g. GEL-NYC"><datalist id="dl-series"></datalist></div>
     <div class="field"><label>Colorway *</label><input type="text" id="m-colorway" placeholder="e.g. BLACK/WHITE"></div>
+    <div class="field"><label>Color Code</label><input type="text" id="m-color-code" placeholder="e.g. 001" maxlength="3"></div>
     <div class="field"><label>Account Name</label><input type="text" id="m-account" list="dl-account" placeholder="e.g. JD"><datalist id="dl-account"></datalist></div>
     <div class="field"><label>SRP (Local)</label><input type="text" id="m-srp" placeholder="e.g. 130"></div>
     <div class="field"><label>Category</label><input type="text" id="m-category" placeholder="e.g. SPORTSTYLE"></div>
@@ -326,8 +335,11 @@ const COL_MAP = {
   product_line: ['Product Line Type', 'Product Line', 'Line Type', 'Line'],
   style_name:   ['Series With Gen', 'Working Name', 'Style Name', 'Style', 'Series'],
   colorway:     ['Colorway', 'Color', 'Colourway'],
+  color_code:   ['Color Code', 'Colour Code'],
   account_name: ['Account Name', 'Account'],
+  lead_region:  ['Lead Region', 'Region'],
   srp:          ['SRP (Local)', "'SRP (Local)", 'SRP', 'Price', 'Retail Price'],
+  srp_global:   ['Global SRP (USD)', "'Global SRP (USD)", 'Global SRP', 'SRP (USD)', 'USD SRP'],
   season:       ['Season'],
   category:     ['Category 4', 'Category'],
 };
@@ -351,12 +363,33 @@ function pickCol(row, aliases) {
   return '';
 }
 
+// Excel stores a merged cell's value only in its top-left cell — every other
+// cell in the merge comes back empty. Propagate that value across the whole
+// merged range so header detection (and data reads) see it consistently.
+function fillMergedCells(aoa, merges) {
+  for (const m of merges) {
+    const topValue = (aoa[m.s.r] && aoa[m.s.r][m.s.c] !== undefined) ? aoa[m.s.r][m.s.c] : '';
+    if (topValue === '') continue;
+    for (let r = m.s.r; r <= m.e.r; r++) {
+      if (!aoa[r]) aoa[r] = [];
+      for (let c = m.s.c; c <= m.e.c; c++) {
+        if (aoa[r][c] === undefined || aoa[r][c] === '') aoa[r][c] = topValue;
+      }
+    }
+  }
+  return aoa;
+}
+
 // Scan the first few raw rows of a sheet to find which one is the real
-// field-name header row (handles sheets with a group-header row above it).
+// field-name header row (handles sheets with a group-header row above it,
+// including ones created by vertically merged header cells).
 // Returns { headerRowIdx, rows } where rows are objects keyed by the detected headers.
 function parseSheetWithHeaderDetection(ws) {
-  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
+  let aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: true });
   if (!aoa.length) return { headerRowIdx: -1, rows: [] };
+
+  const merges = ws['!merges'] || [];
+  aoa = fillMergedCells(aoa, merges);
 
   const knownAliases = Object.values(COL_MAP).flat().map(normalizeHeader);
   const scanLimit = Math.min(aoa.length, 6); // header is almost always within first few rows
@@ -370,7 +403,7 @@ function parseSheetWithHeaderDetection(ws) {
 
   const headerRowIdx = bestRow;
   const headers = aoa[headerRowIdx] || [];
-  const dataRows = aoa.slice(headerRowIdx + 1);
+  const dataRows = aoa.slice(headerRowIdx + 1).filter(r => r.some(c => String(c).trim() !== ''));
 
   const rows = dataRows.map(cells => {
     const obj = {};
@@ -420,17 +453,29 @@ async function readFile(file) {
 
       const sheetSamples = rows
         .filter(r => pickCol(r, COL_MAP.item_code) || pickCol(r, COL_MAP.style_name))
-        .map((r, i) => ({
-          item_code:    pickCol(r, COL_MAP.item_code),
-          product_line: pickCol(r, COL_MAP.product_line),
-          style_name:   pickCol(r, COL_MAP.style_name),
-          colorway:     pickCol(r, COL_MAP.colorway),
-          account_name: pickCol(r, COL_MAP.account_name),
-          srp:          pickCol(r, COL_MAP.srp),
-          season,
-          category:     pickCol(r, COL_MAP.category),
-          image_b64:    imageMap[i] || null
-        }));
+        .map((r, i) => {
+          const localSrp  = pickCol(r, COL_MAP.srp);
+          const globalSrp = pickCol(r, COL_MAP.srp_global);
+          let srp = '', srpCurrency = '€';
+          if (localSrp && localSrp !== '0') {
+            srp = localSrp; srpCurrency = '€';
+          } else if (globalSrp && globalSrp !== '0') {
+            srp = globalSrp; srpCurrency = '$';
+          }
+          return {
+            item_code:    pickCol(r, COL_MAP.item_code),
+            product_line: pickCol(r, COL_MAP.product_line),
+            style_name:   pickCol(r, COL_MAP.style_name),
+            colorway:     pickCol(r, COL_MAP.colorway),
+            color_code:   pickCol(r, COL_MAP.color_code),
+            account_name: pickCol(r, COL_MAP.account_name),
+            lead_region:  pickCol(r, COL_MAP.lead_region) || 'AHQ',
+            srp, srpCurrency,
+            season,
+            category:     pickCol(r, COL_MAP.category),
+            image_b64:    imageMap[i] || null
+          };
+        });
 
       allSamples.push(...sheetSamples);
     }
@@ -591,16 +636,88 @@ function uint8ToBase64(bytes) {
 // ─────────────────────────────────────────
 //  Filters
 // ─────────────────────────────────────────
-function populateSelect(id, values) {
-  const sel = document.getElementById(id);
-  const cur = Array.from(sel.selectedOptions).map(o => o.value);
-  while (sel.options.length > 1) sel.remove(1);
-  [...new Set(values)].filter(Boolean).sort().forEach(v => {
-    const o = document.createElement('option');
-    o.value = v; o.textContent = v; sel.appendChild(o);
-  });
-  Array.from(sel.options).forEach(o => { if (cur.includes(o.value)) o.selected = true; });
+
+// Maps a 3-digit color code (001–999) to its color group name.
+function colorCodeToGroup(code) {
+  const n = parseInt(code, 10);
+  if (isNaN(n)) return 'Other';
+  if ((n >= 1   && n <= 19)  || (n >= 900 && n <= 959)) return 'Black';
+  if (n >= 20  && n <= 99)  return 'Grey';
+  if (n >= 100 && n <= 199) return 'White';
+  if (n >= 200 && n <= 249) return 'Brown';
+  if (n >= 250 && n <= 299) return 'Beige';
+  if (n >= 300 && n <= 399) return 'Green';
+  if (n >= 400 && n <= 499) return 'Blue';
+  if (n >= 500 && n <= 599) return 'Purple';
+  if (n >= 600 && n <= 699) return 'Red';
+  if (n >= 700 && n <= 749) return 'Pink';
+  if (n >= 750 && n <= 799) return 'Yellow';
+  if (n >= 800 && n <= 899) return 'Orange';
+  if (n >= 960 && n <= 999) return 'Miscellaneous';
+  return 'Other';
 }
+
+const FILTER_DEFS = [
+  { id: 'f-season',       prop: s => s.season },
+  { id: 'f-product-line', prop: s => s.product_line },
+  { id: 'f-style',        prop: s => s.style_name },
+  { id: 'f-colorway',     prop: s => colorCodeToGroup(s.color_code) },
+  { id: 'f-account',      prop: s => s.account_name },
+  { id: 'f-region',       prop: s => s.lead_region },
+];
+
+function getSelectedValues(id) {
+  return Array.from(document.getElementById(id).selectedOptions).map(o => o.value).filter(Boolean);
+}
+
+function searchMatch(s, q) {
+  return !q || [s.item_code, s.style_name, s.colorway, s.account_name, s.product_line, s.season]
+                .some(v => v.toLowerCase().includes(q));
+}
+
+// Samples that match every active filter EXCEPT the one named by excludeId —
+// used to figure out which options remain reachable for that specific dropdown.
+function samplesAvailableFor(excludeId) {
+  const q = document.getElementById('search').value.toLowerCase().trim();
+  return allSamples.filter(s => {
+    if (!searchMatch(s, q)) return false;
+    for (const def of FILTER_DEFS) {
+      if (def.id === excludeId) continue;
+      const sel = getSelectedValues(def.id);
+      if (sel.length && !sel.includes(def.prop(s))) return false;
+    }
+    return true;
+  });
+}
+
+const COLOR_GROUP_ORDER = ['Black', 'Grey', 'White', 'Brown', 'Beige', 'Green', 'Blue', 'Purple', 'Red', 'Pink', 'Yellow', 'Orange', 'Miscellaneous', 'Other'];
+
+// Rebuilds every filter dropdown's option list to only include values that are
+// still reachable given the current state of the other filters + search.
+function updateFilterOptions() {
+  FILTER_DEFS.forEach(def => {
+    const avail = samplesAvailableFor(def.id);
+    let availValues = [...new Set(avail.map(def.prop))].filter(Boolean);
+
+    if (def.id === 'f-colorway') {
+      availValues.sort((a, b) => COLOR_GROUP_ORDER.indexOf(a) - COLOR_GROUP_ORDER.indexOf(b));
+    } else {
+      availValues.sort();
+    }
+
+    const sel = document.getElementById(def.id);
+    const currentlySelected = getSelectedValues(def.id);
+
+    sel.innerHTML = '';
+    availValues.forEach(v => {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      if (currentlySelected.includes(v)) o.selected = true;
+      sel.appendChild(o);
+    });
+  });
+}
+
 function populateDatalist(id, values) {
   const dl = document.getElementById(id);
   dl.innerHTML = '';
@@ -610,11 +727,7 @@ function populateDatalist(id, values) {
 }
 
 function initFilters() {
-  populateSelect('f-season',       allSamples.map(s => s.season));
-  populateSelect('f-product-line', allSamples.map(s => s.product_line));
-  populateSelect('f-style',        allSamples.map(s => s.style_name));
-  populateSelect('f-colorway',     allSamples.map(s => s.colorway.split('/')[0].trim()));
-  populateSelect('f-account',      allSamples.map(s => s.account_name));
+  updateFilterOptions();
   populateDatalist('dl-season',  allSamples.map(s => s.season));
   populateDatalist('dl-pltype',  allSamples.map(s => s.product_line));
   populateDatalist('dl-series',  allSamples.map(s => s.style_name));
@@ -622,23 +735,24 @@ function initFilters() {
 }
 
 function applyFilters() {
+  updateFilterOptions();
+
   const q   = document.getElementById('search').value.toLowerCase().trim();
-  const getSelected = id => Array.from(document.getElementById(id).selectedOptions).map(o => o.value).filter(Boolean);
-  const sea = getSelected('f-season');
-  const pl  = getSelected('f-product-line');
-  const st  = getSelected('f-style');
-  const cw  = getSelected('f-colorway');
-  const ac  = getSelected('f-account');
+  const sea = getSelectedValues('f-season');
+  const pl  = getSelectedValues('f-product-line');
+  const st  = getSelectedValues('f-style');
+  const cw  = getSelectedValues('f-colorway');
+  const ac  = getSelectedValues('f-account');
+  const rg  = getSelectedValues('f-region');
 
   const filtered = allSamples.filter(s => {
-    const hit = !q || [s.item_code, s.style_name, s.colorway, s.account_name, s.product_line, s.season]
-                        .some(v => v.toLowerCase().includes(q));
-    return hit
+    return searchMatch(s, q)
       && (!sea.length || sea.includes(s.season))
       && (!pl.length  || pl.includes(s.product_line))
       && (!st.length  || st.includes(s.style_name))
-      && (!cw.length  || cw.includes(s.colorway.split('/')[0].trim()))
-      && (!ac.length  || ac.includes(s.account_name));
+      && (!cw.length  || cw.includes(colorCodeToGroup(s.color_code)))
+      && (!ac.length  || ac.includes(s.account_name))
+      && (!rg.length  || rg.includes(s.lead_region));
   });
 
   const grid = document.getElementById('grid');
@@ -658,15 +772,17 @@ function applyFilters() {
     // Headline: "AW27 1203A312-001" — season greyed, code bold
     const seasonPart = s.season   ? `<span class="season">${s.season} </span>` : '';
     const codePart   = s.item_code || '—';
+    const colorCodePart = s.color_code ? ` <span class="season">${s.color_code}</span>` : '';
 
     card.innerHTML = imgHtml + `
       <div class="card-body">
-        <div class="card-headline">${seasonPart}${codePart}</div>
+        <div class="card-headline">${seasonPart}${codePart}${colorCodePart}</div>
         <div class="card-meta">${s.style_name ? s.style_name + (s.colorway ? ' · ' : '') : ''}${s.colorway || ''}</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
+          ${s.lead_region ? `<span class="card-tag region">${s.lead_region}</span>` : ''}
           ${s.product_line ? `<span class="card-tag ${tagClass}">${s.product_line}</span>` : ''}
           ${s.account_name ? `<span class="card-tag account">${s.account_name}</span>` : ''}
-          ${s.srp ? `<span class="card-tag srp">SRP ${s.srp}</span>` : ''}
+          ${s.srp ? `<span class="card-tag srp">SRP ${s.srpCurrency}${s.srp}</span>` : ''}
         </div>
       </div>`;
     grid.appendChild(card);
@@ -675,7 +791,7 @@ function applyFilters() {
 
 function clearFilters() {
   document.getElementById('search').value = '';
-  ['f-season','f-product-line','f-style','f-colorway','f-account'].forEach(id => { Array.from(document.getElementById(id).options).forEach(o => o.selected = false); });
+  ['f-season','f-product-line','f-style','f-colorway','f-account','f-region'].forEach(id => { Array.from(document.getElementById(id).options).forEach(o => o.selected = false); });
   applyFilters();
 }
 
@@ -685,7 +801,7 @@ function clearFilters() {
 function openModal()  { document.getElementById('modal-backdrop').classList.add('open'); document.getElementById('m-code').focus(); }
 function closeModal() {
   document.getElementById('modal-backdrop').classList.remove('open');
-  ['m-code','m-season','m-pltype','m-series','m-colorway','m-account','m-srp','m-category'].forEach(id => document.getElementById(id).value = '');
+  ['m-code','m-season','m-pltype','m-series','m-colorway','m-color-code','m-account','m-srp','m-category'].forEach(id => document.getElementById(id).value = '');
   newImgB64 = null;
   document.getElementById('img-preview').style.display = 'none';
   document.getElementById('img-input').value = '';
@@ -715,8 +831,11 @@ function saveStyle() {
     product_line: pl,
     style_name:   ser,
     colorway:     cw,
+    color_code:   document.getElementById('m-color-code').value.trim(),
     account_name: document.getElementById('m-account').value.trim(),
+    lead_region:  'AHQ',
     srp:          document.getElementById('m-srp').value.trim(),
+    srpCurrency:  '€',
     season:       document.getElementById('m-season').value.trim(),
     category:     document.getElementById('m-category').value.trim(),
     image_b64:    newImgB64
