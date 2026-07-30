@@ -697,7 +697,14 @@ const COLOR_GROUP_ORDER = ['Black', 'Grey', 'White', 'Brown', 'Beige', 'Green', 
 function updateFilterOptions() {
   FILTER_DEFS.forEach(def => {
     const avail = samplesAvailableFor(def.id);
-    let availValues = [...new Set(avail.map(def.prop))].filter(Boolean);
+    const currentlySelected = getSelectedValues(def.id);
+
+    // Keep whatever the user already selected visible, even if it would
+    // currently combine to zero results with the other active filters —
+    // only new (unselected) options get narrowed down.
+    const availSet = new Set(avail.map(def.prop).filter(Boolean));
+    currentlySelected.forEach(v => availSet.add(v));
+    let availValues = [...availSet];
 
     if (def.id === 'f-colorway') {
       availValues.sort((a, b) => COLOR_GROUP_ORDER.indexOf(a) - COLOR_GROUP_ORDER.indexOf(b));
@@ -706,7 +713,6 @@ function updateFilterOptions() {
     }
 
     const sel = document.getElementById(def.id);
-    const currentlySelected = getSelectedValues(def.id);
 
     sel.innerHTML = '';
     availValues.forEach(v => {
