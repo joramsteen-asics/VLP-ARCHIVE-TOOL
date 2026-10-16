@@ -45,6 +45,11 @@
   .hdr-btn:hover { background: #f5f5f3; }
   .hdr-btn.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
   .hdr-btn.primary:hover { background: #333; }
+  .hdr-btn.sharepoint {
+    display: inline-flex; align-items: center; text-decoration: none;
+    background: #eef2f8; border-color: #d4dced; color: #2a5699;
+  }
+  .hdr-btn.sharepoint:hover { background: #e2e9f5; }
 
   main { padding: 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
 
@@ -66,6 +71,11 @@
   #upload-area h2 { font-size: 15px; font-weight: 500; margin-bottom: 6px; }
   #upload-area p { font-size: 13px; color: #888; line-height: 1.5; }
   #progress { font-size: 12px; color: #aaa; margin-top: 10px; min-height: 18px; }
+
+  .sp-hint { font-size: 13px; color: #888; text-align: center; line-height: 1.7; }
+  .sp-hint a { color: #2a5699; font-weight: 500; text-decoration: none; }
+  .sp-hint a:hover { text-decoration: underline; }
+  .sp-hint span { font-size: 11px; color: #bbb; }
 
   .cols-hint { font-size: 12px; color: #aaa; max-width: 480px; text-align: center; line-height: 1.8; }
   .cols-hint code { background: #eee; padding: 1px 5px; border-radius: 4px; font-size: 11px; font-family: monospace; }
@@ -205,6 +215,13 @@
   .btn-save { height: 36px; padding: 0 16px; border: none; border-radius: 8px; font-size: 13px; background: #1a1a1a; color: #fff; cursor: pointer; font-weight: 500; }
   .btn-save:hover { background: #333; }
 
+  /* ── Footer ── */
+  footer {
+    text-align: center; font-size: 11px; color: #bbb;
+    padding: 2rem 1rem 2.5rem; border-top: 1px solid #ebebe9;
+    margin-top: 1rem;
+  }
+
   /* ── Toast ── */
   #toast {
     position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
@@ -220,6 +237,7 @@
 <header>
   <h1>ASICS VLP Archive Tool</h1>
   <span id="count-badge" style="display:none">0 samples</span>
+  <a class="hdr-btn sharepoint" id="btn-sharepoint" href="#" target="_blank" rel="noopener">⬇ Latest data</a>
   <button class="hdr-btn primary" id="btn-add" onclick="openModal()">+ Add style</button>
   <button class="hdr-btn" id="btn-reset" onclick="resetArchive()">↑ New file</button>
 </header>
@@ -241,6 +259,10 @@
       <p>Click to browse or drag & drop<br>your .xlsx file here</p>
       <p id="progress"></p>
     </div>
+    <p class="sp-hint" id="sp-hint">
+      Need the file? <a id="sp-link" href="#" target="_blank" rel="noopener">Download the latest export from SharePoint ↗</a><br>
+      <span>ASICS sign-in required</span>
+    </p>
     <p class="cols-hint">
       Expected columns:<br>
       <code>Season</code> · <code>Product Line Type</code> · <code>Item Trading Code</code> ·
@@ -278,6 +300,8 @@
 
 </main>
 
+<footer>Built by Joram Steen · ASICS SportStyle</footer>
+
 <!-- Add style modal -->
 <div id="modal-backdrop" onclick="backdropClick(event)">
   <div id="modal">
@@ -310,11 +334,38 @@
 <div id="toast"></div>
 
 <script>
+// ═════════════════════════════════════════
+//  CONFIG — paste your SharePoint folder link below.
+//  Access is controlled by SharePoint itself: only people signed in
+//  with an ASICS account and granted access to that folder can open it.
+//  Leave it empty ('') to hide the download links entirely.
+// ═════════════════════════════════════════
+// ↓ PLACEHOLDER — swap for your real SharePoint folder link
+const SHAREPOINT_URL = 'https://asics.sharepoint.com/PLACEHOLDER-replace-me';
+
 // ─────────────────────────────────────────
 //  State
 // ─────────────────────────────────────────
 let allSamples = [];
 let newImgB64  = null;
+
+// Wire up (or hide) the SharePoint links based on the config above.
+// The header button and the upload-screen hint are never shown at the same
+// time: the hint belongs to the upload screen, the button to the archive view.
+const HAS_SHAREPOINT = !!(SHAREPOINT_URL && SHAREPOINT_URL.trim());
+
+(function initSharePointLinks() {
+  const btn  = document.getElementById('btn-sharepoint');
+  const hint = document.getElementById('sp-hint');
+  const link = document.getElementById('sp-link');
+  if (HAS_SHAREPOINT) {
+    btn.href  = SHAREPOINT_URL;
+    link.href = SHAREPOINT_URL;
+  } else {
+    hint.style.display = 'none';
+  }
+  btn.style.display = 'none';   // hidden until a file is loaded
+})();
 
 // ─────────────────────────────────────────
 //  File reading
@@ -489,6 +540,7 @@ async function readFile(file) {
     document.getElementById('archive-section').style.display = 'block';
     document.getElementById('count-badge').style.display     = 'inline';
     ['btn-add','btn-reset'].forEach(id => document.getElementById(id).style.display = 'inline');
+    if (HAS_SHAREPOINT) document.getElementById('btn-sharepoint').style.display = 'inline-flex';
   } catch(err) {
     showToast('Error reading file: ' + err.message);
     setProgress('');
@@ -863,7 +915,7 @@ function resetArchive() {
   document.getElementById('archive-section').style.display = 'none';
   document.getElementById('count-badge').style.display     = 'none';
   document.getElementById('download-bar').classList.remove('show');
-  ['btn-add','btn-reset'].forEach(id => document.getElementById(id).style.display = 'none');
+  ['btn-add','btn-reset','btn-sharepoint'].forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('file-input').value = '';
   clearFilters();
 }
